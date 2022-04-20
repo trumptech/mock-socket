@@ -135,5 +135,6 @@ declare module 'mock-socket' {
     mock?: boolean;
     verifyClient?: () => boolean;
     selectProtocol?: (protocols: string[]) => string | null;
+    delay?: number;
   }
 }

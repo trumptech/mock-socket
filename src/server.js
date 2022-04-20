@@ -1,17 +1,18 @@
 import URL from 'url-parse';
-import WebSocket from './websocket';
-import dedupe from './helpers/dedupe';
-import EventTarget from './event/target';
 import { CLOSE_CODES } from './constants';
-import networkBridge from './network-bridge';
+import { createCloseEvent, createEvent, createMessageEvent } from './event/factory';
+import EventTarget from './event/target';
+import dedupe from './helpers/dedupe';
 import globalObject from './helpers/global-object';
 import normalizeSendData from './helpers/normalize-send';
-import { createEvent, createMessageEvent, createCloseEvent } from './event/factory';
+import networkBridge from './network-bridge';
+import WebSocket from './websocket';
 
 const defaultOptions = {
   mock: true,
   verifyClient: null,
-  selectProtocol: null
+  selectProtocol: null,
+  delay: 0,
 };
 
 class Server extends EventTarget {
@@ -67,7 +68,7 @@ class Server extends EventTarget {
    * Removes itself from the urlMap so another server could add itself to the url.
    * @param {function} callback - The callback is called when the server is stopped
    */
-  stop(callback = () => {}) {
+  stop(callback = () => { }) {
     if (this.options.mock) {
       this.restoreWebsocket();
     }
@@ -139,28 +140,30 @@ class Server extends EventTarget {
       data = normalizeSendData(data);
     }
 
-    websockets.forEach(socket => {
-      if (Array.isArray(data)) {
-        socket.dispatchEvent(
-          createMessageEvent({
-            type: event,
-            data,
-            origin: this.url,
-            target: socket.target
-          }),
-          ...data
-        );
-      } else {
-        socket.dispatchEvent(
-          createMessageEvent({
-            type: event,
-            data,
-            origin: this.url,
-            target: socket.target
-          })
-        );
-      }
-    });
+    setTimeout(() => {
+      websockets.forEach(socket => {
+        if (Array.isArray(data)) {
+          socket.dispatchEvent(
+            createMessageEvent({
+              type: event,
+              data,
+              origin: this.url,
+              target: socket.target
+            }),
+            ...data
+          );
+        } else {
+          socket.dispatchEvent(
+            createMessageEvent({
+              type: event,
+              data,
+              origin: this.url,
+              target: socket.target
+            })
+          );
+        }
+      });
+    }, this.options.delay);
   }
 
   /*

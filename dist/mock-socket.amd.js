@@ -683,266 +683,6 @@ Url.qs = querystringify_1;
 var urlParse = Url;
 
 /*
- * This delay allows the thread to finish assigning its on* methods
- * before invoking the delay callback. This is purely a timing hack.
- * http://geekabyte.blogspot.com/2014/01/javascript-effect-of-setting-settimeout.html
- *
- * @param {callback: function} the callback which will be invoked after the timeout
- * @parma {context: object} the context in which to invoke the function
- */
-function delay(callback, context) {
-  setTimeout(function (timeoutContext) { return callback.call(timeoutContext); }, 4, context);
-}
-
-function log(method, message) {
-  /* eslint-disable no-console */
-  if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    console[method].call(null, message);
-  }
-  /* eslint-enable no-console */
-}
-
-function reject(array, callback) {
-  if ( array === void 0 ) array = [];
-
-  var results = [];
-  array.forEach(function (itemInArray) {
-    if (!callback(itemInArray)) {
-      results.push(itemInArray);
-    }
-  });
-
-  return results;
-}
-
-function filter(array, callback) {
-  if ( array === void 0 ) array = [];
-
-  var results = [];
-  array.forEach(function (itemInArray) {
-    if (callback(itemInArray)) {
-      results.push(itemInArray);
-    }
-  });
-
-  return results;
-}
-
-/*
- * EventTarget is an interface implemented by objects that can
- * receive events and may have listeners for them.
- *
- * https://developer.mozilla.org/en-US/docs/Web/API/EventTarget
- */
-var EventTarget = function EventTarget() {
-  this.listeners = {};
-};
-
-/*
- * Ties a listener function to an event type which can later be invoked via the
- * dispatchEvent method.
- *
- * @param {string} type - the type of event (ie: 'open', 'message', etc.)
- * @param {function} listener - callback function to invoke when an event is dispatched matching the type
- * @param {boolean} useCapture - N/A TODO: implement useCapture functionality
- */
-EventTarget.prototype.addEventListener = function addEventListener (type, listener /* , useCapture */) {
-  if (typeof listener === 'function') {
-    if (!Array.isArray(this.listeners[type])) {
-      this.listeners[type] = [];
-    }
-
-    // Only add the same function once
-    if (filter(this.listeners[type], function (item) { return item === listener; }).length === 0) {
-      this.listeners[type].push(listener);
-    }
-  }
-};
-
-/*
- * Removes the listener so it will no longer be invoked via the dispatchEvent method.
- *
- * @param {string} type - the type of event (ie: 'open', 'message', etc.)
- * @param {function} listener - callback function to invoke when an event is dispatched matching the type
- * @param {boolean} useCapture - N/A TODO: implement useCapture functionality
- */
-EventTarget.prototype.removeEventListener = function removeEventListener (type, removingListener /* , useCapture */) {
-  var arrayOfListeners = this.listeners[type];
-  this.listeners[type] = reject(arrayOfListeners, function (listener) { return listener === removingListener; });
-};
-
-/*
- * Invokes all listener functions that are listening to the given event.type property. Each
- * listener will be passed the event as the first argument.
- *
- * @param {object} event - event object which will be passed to all listeners of the event.type property
- */
-EventTarget.prototype.dispatchEvent = function dispatchEvent (event) {
-    var this$1 = this;
-    var customArguments = [], len = arguments.length - 1;
-    while ( len-- > 0 ) customArguments[ len ] = arguments[ len + 1 ];
-
-  var eventName = event.type;
-  var listeners = this.listeners[eventName];
-
-  if (!Array.isArray(listeners)) {
-    return false;
-  }
-
-  listeners.forEach(function (listener) {
-    if (customArguments.length > 0) {
-      listener.apply(this$1, customArguments);
-    } else {
-      listener.call(this$1, event);
-    }
-  });
-
-  return true;
-};
-
-function trimQueryPartFromURL(url) {
-  var queryIndex = url.indexOf('?');
-  return queryIndex >= 0 ? url.slice(0, queryIndex) : url;
-}
-
-/*
- * The network bridge is a way for the mock websocket object to 'communicate' with
- * all available servers. This is a singleton object so it is important that you
- * clean up urlMap whenever you are finished.
- */
-var NetworkBridge = function NetworkBridge() {
-  this.urlMap = {};
-};
-
-/*
- * Attaches a websocket object to the urlMap hash so that it can find the server
- * it is connected to and the server in turn can find it.
- *
- * @param {object} websocket - websocket object to add to the urlMap hash
- * @param {string} url
- */
-NetworkBridge.prototype.attachWebSocket = function attachWebSocket (websocket, url) {
-  var serverURL = trimQueryPartFromURL(url);
-  var connectionLookup = this.urlMap[serverURL];
-
-  if (connectionLookup && connectionLookup.server && connectionLookup.websockets.indexOf(websocket) === -1) {
-    connectionLookup.websockets.push(websocket);
-    return connectionLookup.server;
-  }
-};
-
-/*
- * Attaches a websocket to a room
- */
-NetworkBridge.prototype.addMembershipToRoom = function addMembershipToRoom (websocket, room) {
-  var connectionLookup = this.urlMap[trimQueryPartFromURL(websocket.url)];
-
-  if (connectionLookup && connectionLookup.server && connectionLookup.websockets.indexOf(websocket) !== -1) {
-    if (!connectionLookup.roomMemberships[room]) {
-      connectionLookup.roomMemberships[room] = [];
-    }
-
-    connectionLookup.roomMemberships[room].push(websocket);
-  }
-};
-
-/*
- * Attaches a server object to the urlMap hash so that it can find a websockets
- * which are connected to it and so that websockets can in turn can find it.
- *
- * @param {object} server - server object to add to the urlMap hash
- * @param {string} url
- */
-NetworkBridge.prototype.attachServer = function attachServer (server, url) {
-  var serverUrl = trimQueryPartFromURL(url);
-  var connectionLookup = this.urlMap[serverUrl];
-
-  if (!connectionLookup) {
-    this.urlMap[serverUrl] = {
-      server: server,
-      websockets: [],
-      roomMemberships: {}
-    };
-
-    return server;
-  }
-};
-
-/*
- * Finds the server which is 'running' on the given url.
- *
- * @param {string} url - the url to use to find which server is running on it
- */
-NetworkBridge.prototype.serverLookup = function serverLookup (url) {
-  var serverURL = trimQueryPartFromURL(url);
-  var connectionLookup = this.urlMap[serverURL];
-
-  if (connectionLookup) {
-    return connectionLookup.server;
-  }
-};
-
-/*
- * Finds all websockets which is 'listening' on the given url.
- *
- * @param {string} url - the url to use to find all websockets which are associated with it
- * @param {string} room - if a room is provided, will only return sockets in this room
- * @param {class} broadcaster - socket that is broadcasting and is to be excluded from the lookup
- */
-NetworkBridge.prototype.websocketsLookup = function websocketsLookup (url, room, broadcaster) {
-  var serverURL = trimQueryPartFromURL(url);
-  var websockets;
-  var connectionLookup = this.urlMap[serverURL];
-
-  websockets = connectionLookup ? connectionLookup.websockets : [];
-
-  if (room) {
-    var members = connectionLookup.roomMemberships[room];
-    websockets = members || [];
-  }
-
-  return broadcaster ? websockets.filter(function (websocket) { return websocket !== broadcaster; }) : websockets;
-};
-
-/*
- * Removes the entry associated with the url.
- *
- * @param {string} url
- */
-NetworkBridge.prototype.removeServer = function removeServer (url) {
-  delete this.urlMap[trimQueryPartFromURL(url)];
-};
-
-/*
- * Removes the individual websocket from the map of associated websockets.
- *
- * @param {object} websocket - websocket object to remove from the url map
- * @param {string} url
- */
-NetworkBridge.prototype.removeWebSocket = function removeWebSocket (websocket, url) {
-  var serverURL = trimQueryPartFromURL(url);
-  var connectionLookup = this.urlMap[serverURL];
-
-  if (connectionLookup) {
-    connectionLookup.websockets = reject(connectionLookup.websockets, function (socket) { return socket === websocket; });
-  }
-};
-
-/*
- * Removes a websocket from a room
- */
-NetworkBridge.prototype.removeMembershipFromRoom = function removeMembershipFromRoom (websocket, room) {
-  var connectionLookup = this.urlMap[trimQueryPartFromURL(websocket.url)];
-  var memberships = connectionLookup.roomMemberships[room];
-
-  if (connectionLookup && memberships !== null) {
-    connectionLookup.roomMemberships[room] = reject(memberships, function (socket) { return socket === websocket; });
-  }
-};
-
-var networkBridge = new NetworkBridge(); // Note: this is a singleton
-
-/*
  * https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent
  */
 var CLOSE_CODES = {
@@ -1194,6 +934,283 @@ function createCloseEvent(config) {
   return closeEvent;
 }
 
+function reject(array, callback) {
+  if ( array === void 0 ) array = [];
+
+  var results = [];
+  array.forEach(function (itemInArray) {
+    if (!callback(itemInArray)) {
+      results.push(itemInArray);
+    }
+  });
+
+  return results;
+}
+
+function filter(array, callback) {
+  if ( array === void 0 ) array = [];
+
+  var results = [];
+  array.forEach(function (itemInArray) {
+    if (callback(itemInArray)) {
+      results.push(itemInArray);
+    }
+  });
+
+  return results;
+}
+
+/*
+ * EventTarget is an interface implemented by objects that can
+ * receive events and may have listeners for them.
+ *
+ * https://developer.mozilla.org/en-US/docs/Web/API/EventTarget
+ */
+var EventTarget = function EventTarget() {
+  this.listeners = {};
+};
+
+/*
+ * Ties a listener function to an event type which can later be invoked via the
+ * dispatchEvent method.
+ *
+ * @param {string} type - the type of event (ie: 'open', 'message', etc.)
+ * @param {function} listener - callback function to invoke when an event is dispatched matching the type
+ * @param {boolean} useCapture - N/A TODO: implement useCapture functionality
+ */
+EventTarget.prototype.addEventListener = function addEventListener (type, listener /* , useCapture */) {
+  if (typeof listener === 'function') {
+    if (!Array.isArray(this.listeners[type])) {
+      this.listeners[type] = [];
+    }
+
+    // Only add the same function once
+    if (filter(this.listeners[type], function (item) { return item === listener; }).length === 0) {
+      this.listeners[type].push(listener);
+    }
+  }
+};
+
+/*
+ * Removes the listener so it will no longer be invoked via the dispatchEvent method.
+ *
+ * @param {string} type - the type of event (ie: 'open', 'message', etc.)
+ * @param {function} listener - callback function to invoke when an event is dispatched matching the type
+ * @param {boolean} useCapture - N/A TODO: implement useCapture functionality
+ */
+EventTarget.prototype.removeEventListener = function removeEventListener (type, removingListener /* , useCapture */) {
+  var arrayOfListeners = this.listeners[type];
+  this.listeners[type] = reject(arrayOfListeners, function (listener) { return listener === removingListener; });
+};
+
+/*
+ * Invokes all listener functions that are listening to the given event.type property. Each
+ * listener will be passed the event as the first argument.
+ *
+ * @param {object} event - event object which will be passed to all listeners of the event.type property
+ */
+EventTarget.prototype.dispatchEvent = function dispatchEvent (event) {
+    var this$1 = this;
+    var customArguments = [], len = arguments.length - 1;
+    while ( len-- > 0 ) customArguments[ len ] = arguments[ len + 1 ];
+
+  var eventName = event.type;
+  var listeners = this.listeners[eventName];
+
+  if (!Array.isArray(listeners)) {
+    return false;
+  }
+
+  listeners.forEach(function (listener) {
+    if (customArguments.length > 0) {
+      listener.apply(this$1, customArguments);
+    } else {
+      listener.call(this$1, event);
+    }
+  });
+
+  return true;
+};
+
+var dedupe = function (arr) { return arr.reduce(function (deduped, b) {
+    if (deduped.indexOf(b) > -1) { return deduped; }
+    return deduped.concat(b);
+  }, []); };
+
+function retrieveGlobalObject() {
+  if (typeof window !== 'undefined') {
+    return window;
+  }
+
+  return typeof process === 'object' && typeof require === 'function' && typeof global === 'object' ? global : this;
+}
+
+function normalizeSendData(data) {
+  return data;
+}
+
+function trimQueryPartFromURL(url) {
+  var queryIndex = url.indexOf('?');
+  return queryIndex >= 0 ? url.slice(0, queryIndex) : url;
+}
+
+/*
+ * The network bridge is a way for the mock websocket object to 'communicate' with
+ * all available servers. This is a singleton object so it is important that you
+ * clean up urlMap whenever you are finished.
+ */
+var NetworkBridge = function NetworkBridge() {
+  this.urlMap = {};
+};
+
+/*
+ * Attaches a websocket object to the urlMap hash so that it can find the server
+ * it is connected to and the server in turn can find it.
+ *
+ * @param {object} websocket - websocket object to add to the urlMap hash
+ * @param {string} url
+ */
+NetworkBridge.prototype.attachWebSocket = function attachWebSocket (websocket, url) {
+  var serverURL = trimQueryPartFromURL(url);
+  var connectionLookup = this.urlMap[serverURL];
+
+  if (connectionLookup && connectionLookup.server && connectionLookup.websockets.indexOf(websocket) === -1) {
+    connectionLookup.websockets.push(websocket);
+    return connectionLookup.server;
+  }
+};
+
+/*
+ * Attaches a websocket to a room
+ */
+NetworkBridge.prototype.addMembershipToRoom = function addMembershipToRoom (websocket, room) {
+  var connectionLookup = this.urlMap[trimQueryPartFromURL(websocket.url)];
+
+  if (connectionLookup && connectionLookup.server && connectionLookup.websockets.indexOf(websocket) !== -1) {
+    if (!connectionLookup.roomMemberships[room]) {
+      connectionLookup.roomMemberships[room] = [];
+    }
+
+    connectionLookup.roomMemberships[room].push(websocket);
+  }
+};
+
+/*
+ * Attaches a server object to the urlMap hash so that it can find a websockets
+ * which are connected to it and so that websockets can in turn can find it.
+ *
+ * @param {object} server - server object to add to the urlMap hash
+ * @param {string} url
+ */
+NetworkBridge.prototype.attachServer = function attachServer (server, url) {
+  var serverUrl = trimQueryPartFromURL(url);
+  var connectionLookup = this.urlMap[serverUrl];
+
+  if (!connectionLookup) {
+    this.urlMap[serverUrl] = {
+      server: server,
+      websockets: [],
+      roomMemberships: {}
+    };
+
+    return server;
+  }
+};
+
+/*
+ * Finds the server which is 'running' on the given url.
+ *
+ * @param {string} url - the url to use to find which server is running on it
+ */
+NetworkBridge.prototype.serverLookup = function serverLookup (url) {
+  var serverURL = trimQueryPartFromURL(url);
+  var connectionLookup = this.urlMap[serverURL];
+
+  if (connectionLookup) {
+    return connectionLookup.server;
+  }
+};
+
+/*
+ * Finds all websockets which is 'listening' on the given url.
+ *
+ * @param {string} url - the url to use to find all websockets which are associated with it
+ * @param {string} room - if a room is provided, will only return sockets in this room
+ * @param {class} broadcaster - socket that is broadcasting and is to be excluded from the lookup
+ */
+NetworkBridge.prototype.websocketsLookup = function websocketsLookup (url, room, broadcaster) {
+  var serverURL = trimQueryPartFromURL(url);
+  var websockets;
+  var connectionLookup = this.urlMap[serverURL];
+
+  websockets = connectionLookup ? connectionLookup.websockets : [];
+
+  if (room) {
+    var members = connectionLookup.roomMemberships[room];
+    websockets = members || [];
+  }
+
+  return broadcaster ? websockets.filter(function (websocket) { return websocket !== broadcaster; }) : websockets;
+};
+
+/*
+ * Removes the entry associated with the url.
+ *
+ * @param {string} url
+ */
+NetworkBridge.prototype.removeServer = function removeServer (url) {
+  delete this.urlMap[trimQueryPartFromURL(url)];
+};
+
+/*
+ * Removes the individual websocket from the map of associated websockets.
+ *
+ * @param {object} websocket - websocket object to remove from the url map
+ * @param {string} url
+ */
+NetworkBridge.prototype.removeWebSocket = function removeWebSocket (websocket, url) {
+  var serverURL = trimQueryPartFromURL(url);
+  var connectionLookup = this.urlMap[serverURL];
+
+  if (connectionLookup) {
+    connectionLookup.websockets = reject(connectionLookup.websockets, function (socket) { return socket === websocket; });
+  }
+};
+
+/*
+ * Removes a websocket from a room
+ */
+NetworkBridge.prototype.removeMembershipFromRoom = function removeMembershipFromRoom (websocket, room) {
+  var connectionLookup = this.urlMap[trimQueryPartFromURL(websocket.url)];
+  var memberships = connectionLookup.roomMemberships[room];
+
+  if (connectionLookup && memberships !== null) {
+    connectionLookup.roomMemberships[room] = reject(memberships, function (socket) { return socket === websocket; });
+  }
+};
+
+var networkBridge = new NetworkBridge(); // Note: this is a singleton
+
+/*
+ * This delay allows the thread to finish assigning its on* methods
+ * before invoking the delay callback. This is purely a timing hack.
+ * http://geekabyte.blogspot.com/2014/01/javascript-effect-of-setting-settimeout.html
+ *
+ * @param {callback: function} the callback which will be invoked after the timeout
+ * @parma {context: object} the context in which to invoke the function
+ */
+function delay(callback, context) {
+  setTimeout(function (timeoutContext) { return callback.call(timeoutContext); }, 4, context);
+}
+
+function log(method, message) {
+  /* eslint-disable no-console */
+  if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
+    console[method].call(null, message);
+  }
+  /* eslint-enable no-console */
+}
+
 function closeWebSocketConnection(context, code, reason) {
   context.readyState = WebSocket$1.CLOSING;
 
@@ -1245,10 +1262,6 @@ function failWebSocketConnection(context, code, reason) {
       server.dispatchEvent(closeEvent, server);
     }
   }, context);
-}
-
-function normalizeSendData(data) {
-  return data;
 }
 
 var proxies = new WeakMap();
@@ -1563,23 +1576,11 @@ WebSocket$1.prototype.CLOSING = WebSocket$1.CLOSING;
 WebSocket$1.CLOSED = 3;
 WebSocket$1.prototype.CLOSED = WebSocket$1.CLOSED;
 
-var dedupe = function (arr) { return arr.reduce(function (deduped, b) {
-    if (deduped.indexOf(b) > -1) { return deduped; }
-    return deduped.concat(b);
-  }, []); };
-
-function retrieveGlobalObject() {
-  if (typeof window !== 'undefined') {
-    return window;
-  }
-
-  return typeof process === 'object' && typeof require === 'function' && typeof global === 'object' ? global : this;
-}
-
 var defaultOptions = {
   mock: true,
   verifyClient: null,
-  selectProtocol: null
+  selectProtocol: null,
+  delay: 0,
 };
 
 var Server$1 = (function (EventTarget$$1) {
@@ -1642,7 +1643,7 @@ var Server$1 = (function (EventTarget$$1) {
    * @param {function} callback - The callback is called when the server is stopped
    */
   Server.prototype.stop = function stop (callback) {
-    if ( callback === void 0 ) callback = function () {};
+    if ( callback === void 0 ) callback = function () { };
 
     if (this.options.mock) {
       this.restoreWebsocket();
@@ -1722,27 +1723,29 @@ var Server$1 = (function (EventTarget$$1) {
       data = normalizeSendData(data);
     }
 
-    websockets.forEach(function (socket) {
-      if (Array.isArray(data)) {
-        socket.dispatchEvent.apply(
-          socket, [ createMessageEvent({
-            type: event,
-            data: data,
-            origin: this$1.url,
-            target: socket.target
-          }) ].concat( data )
-        );
-      } else {
-        socket.dispatchEvent(
-          createMessageEvent({
-            type: event,
-            data: data,
-            origin: this$1.url,
-            target: socket.target
-          })
-        );
-      }
-    });
+    setTimeout(function () {
+      websockets.forEach(function (socket) {
+        if (Array.isArray(data)) {
+          socket.dispatchEvent.apply(
+            socket, [ createMessageEvent({
+              type: event,
+              data: data,
+              origin: this$1.url,
+              target: socket.target
+            }) ].concat( data )
+          );
+        } else {
+          socket.dispatchEvent(
+            createMessageEvent({
+              type: event,
+              data: data,
+              origin: this$1.url,
+              target: socket.target
+            })
+          );
+        }
+      });
+    }, this.options.delay);
   };
 
   /*
