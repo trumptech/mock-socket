@@ -1,15 +1,15 @@
+import { closeWebSocketConnection, failWebSocketConnection } from './algorithms/close';
+import { CLOSE_CODES, ERROR_PREFIX } from './constants';
+import { createCloseEvent, createEvent, createMessageEvent } from './event/factory';
+import EventTarget from './event/target';
+import lengthInUtf8Bytes from './helpers/byte-length';
 import delay from './helpers/delay';
 import logger from './helpers/logger';
-import EventTarget from './event/target';
-import networkBridge from './network-bridge';
-import proxyFactory from './helpers/proxy-factory';
-import lengthInUtf8Bytes from './helpers/byte-length';
-import { CLOSE_CODES, ERROR_PREFIX } from './constants';
-import urlVerification from './helpers/url-verification';
 import normalizeSendData from './helpers/normalize-send';
 import protocolVerification from './helpers/protocol-verification';
-import { createEvent, createMessageEvent, createCloseEvent } from './event/factory';
-import { closeWebSocketConnection, failWebSocketConnection } from './algorithms/close';
+import proxyFactory from './helpers/proxy-factory';
+import urlVerification from './helpers/url-verification';
+import networkBridge from './network-bridge';
 
 /*
  * The main websocket class which is designed to mimick the native WebSocket class as close
@@ -30,6 +30,7 @@ class WebSocket extends EventTarget {
 
     const client = proxyFactory(this);
     const server = networkBridge.attachWebSocket(client, this.url);
+    const connectionDelay = server && server.options && server.options.connectionDelay;
 
     /*
      * This delay is needed so that we dont trigger an event before the callbacks have been
@@ -90,7 +91,7 @@ class WebSocket extends EventTarget {
 
         logger('error', `WebSocket connection to '${this.url}' failed`);
       }
-    }, this);
+    }, this, connectionDelay);
   }
 
   get onopen() {
@@ -143,11 +144,12 @@ class WebSocket extends EventTarget {
     });
 
     const server = networkBridge.serverLookup(this.url);
+    const connectionDelay = server && server.options && server.options.connectionDelay;
 
     if (server) {
       delay(() => {
         this.dispatchEvent(messageEvent, data);
-      }, server);
+      }, server, connectionDelay);
     }
   }
 

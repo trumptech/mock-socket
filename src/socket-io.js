@@ -1,10 +1,10 @@
 import URL from 'url-parse';
-import delay from './helpers/delay';
-import EventTarget from './event/target';
-import networkBridge from './network-bridge';
 import { CLOSE_CODES } from './constants';
+import { createCloseEvent, createEvent, createMessageEvent } from './event/factory';
+import EventTarget from './event/target';
+import delay from './helpers/delay';
 import logger from './helpers/logger';
-import { createEvent, createMessageEvent, createCloseEvent } from './event/factory';
+import networkBridge from './network-bridge';
 
 /*
  * The socket-io class is designed to mimick the real API as closely as possible.
@@ -37,6 +37,7 @@ class SocketIO extends EventTarget {
     }
 
     const server = networkBridge.attachWebSocket(this, this.url);
+    const connectionDelay = server && server.options && server.options.connectionDelay;
 
     /*
      * Delay triggering the connection events so they can be defined in time.
@@ -60,7 +61,7 @@ class SocketIO extends EventTarget {
 
         logger('error', `Socket.io connection to '${this.url}' failed`);
       }
-    }, this);
+    }, this, connectionDelay);
 
     /**
       Add an aliased event listener for close / disconnect

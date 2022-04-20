@@ -1,7 +1,7 @@
-import WebSocket from '../websocket';
+import { createCloseEvent, createEvent } from '../event/factory';
 import delay from '../helpers/delay';
 import networkBridge from '../network-bridge';
-import { createCloseEvent, createEvent } from '../event/factory';
+import WebSocket from '../websocket';
 
 export function closeWebSocketConnection(context, code, reason) {
   context.readyState = WebSocket.CLOSING;
@@ -14,6 +14,8 @@ export function closeWebSocketConnection(context, code, reason) {
     reason
   });
 
+  const connectionDelay = server && server.options && server.options.connectionDelay;
+
   delay(() => {
     networkBridge.removeWebSocket(context, context.url);
 
@@ -23,7 +25,7 @@ export function closeWebSocketConnection(context, code, reason) {
     if (server) {
       server.dispatchEvent(closeEvent, server);
     }
-  }, context);
+  }, context, connectionDelay);
 }
 
 export function failWebSocketConnection(context, code, reason) {
@@ -43,6 +45,8 @@ export function failWebSocketConnection(context, code, reason) {
     target: context.target
   });
 
+  const connectionDelay = server && server.options && server.options.connectionDelay;
+
   delay(() => {
     networkBridge.removeWebSocket(context, context.url);
 
@@ -53,5 +57,5 @@ export function failWebSocketConnection(context, code, reason) {
     if (server) {
       server.dispatchEvent(closeEvent, server);
     }
-  }, context);
+  }, context, connectionDelay);
 }
